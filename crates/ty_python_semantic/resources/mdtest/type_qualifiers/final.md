@@ -7,9 +7,10 @@ any scope. Final names declared in class scopes cannot be overridden in subclass
 
 ### `Final` with type
 
-A `Final` symbol in a module scope cannot be rebound, so its inferred type is used everywhere — not
-just locally, but also when it is accessed from another scope or imported from another module. This
-keeps statically known values such as `Literal` types intact:
+A `Final` symbol in a module scope cannot be rebound, so a `Literal[…]` value it is initialized with
+is used as its type everywhere — not just locally, but also when it is accessed from another scope or
+imported from another module. This keeps statically known values intact, so a platform or version
+check stored in a `Final` constant can prune branches:
 
 `mod.py`:
 
@@ -47,6 +48,40 @@ reveal_type(FINAL_B)  # revealed: Literal[1]
 reveal_type(FINAL_C)  # revealed: Literal[1]
 reveal_type(FINAL_D)  # revealed: Literal[1]
 reveal_type(FINAL_F)  # revealed: Literal[1]
+```
+
+### Non-literal inferred types keep the declared type
+
+Only literal values are exposed. Any other inferred type stays hidden behind the declared type,
+because narrowing it would leak a subclass into every variable that is inferred from such a read.
+This is what makes it valid to widen a sentinel with an annotation:
+
+`mod.py`:
+
+```py
+from typing import Final
+
+class Base: ...
+class Sentinel(Base): ...
+
+WIDENED: Final[Base] = Sentinel()
+
+reveal_type(WIDENED)  # revealed: Sentinel
+```
+
+```py
+from mod import WIDENED, Base
+
+reveal_type(WIDENED)  # revealed: Base
+
+class Holder:
+    def __init__(self) -> None:
+        self.value = WIDENED
+
+def fill(holder: Holder) -> None:
+    # Assigning a `Base` is fine; the attribute is not narrowed to `Sentinel`.
+    holder.value = Base()
+    reveal_type(holder.value)  # revealed: Base
 ```
 
 ### `Final` in class scopes
