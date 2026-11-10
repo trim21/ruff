@@ -1349,6 +1349,27 @@ pub(crate) fn place_by_id<'db>(
             .with_qualifiers(qualifiers);
     }
 
+    // A `Final` symbol in a module scope can't be rebound, so the precise inferred type is safe to
+    // expose as its public type, just like a bare `Final`. Exposing the annotated type instead
+    // would drop statically known values, e.g. reading a `Final[bool]` platform check from a
+    // nested scope would lose the literal and the guarded branch could not be pruned anymore.
+    if declared.qualifiers.contains(TypeQualifiers::FINAL)
+        && scope.node(db).scope_kind().is_module()
+        && !declared
+            .place
+            .ignore_possibly_undefined()
+            .is_none_or(|ty| ty.is_unknown())
+    {
+        let bindings = all_considered_bindings();
+        let inferred =
+            place_from_bindings_impl(db, &env, bindings, requires_explicit_reexport, None).place;
+        return match inferred {
+            Place::Defined(defined) => Place::Defined(defined).with_qualifiers(declared.qualifiers),
+            // `Final` without a value has no inference to fall back to.
+            Place::Undefined => declared,
+        };
+    }
+
     match declared {
         // Handle bare `ClassVar` annotations by falling back to the union of `Unknown` and the
         // inferred type.

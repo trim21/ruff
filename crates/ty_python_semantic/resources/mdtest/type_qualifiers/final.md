@@ -7,8 +7,9 @@ any scope. Final names declared in class scopes cannot be overridden in subclass
 
 ### `Final` with type
 
-Declared symbols that are additionally qualified with `Final` use the declared type when accessed
-from another scope. Local uses of the symbol will use the inferred type, which may be more specific:
+A `Final` symbol in a module scope cannot be rebound, so its inferred type is used everywhere — not
+just locally, but also when it is accessed from another scope or imported from another module. This
+keeps statically known values such as `Literal` types intact:
 
 `mod.py`:
 
@@ -29,11 +30,11 @@ reveal_type(FINAL_D)  # revealed: Literal[1]
 reveal_type(FINAL_D)  # revealed: Literal[1]
 
 def nonlocal_uses():
-    reveal_type(FINAL_A)  # revealed: int
-    reveal_type(FINAL_B)  # revealed: int
-    reveal_type(FINAL_C)  # revealed: int
-    reveal_type(FINAL_D)  # revealed: int
-    reveal_type(FINAL_F)  # revealed: int
+    reveal_type(FINAL_A)  # revealed: Literal[1]
+    reveal_type(FINAL_B)  # revealed: Literal[1]
+    reveal_type(FINAL_C)  # revealed: Literal[1]
+    reveal_type(FINAL_D)  # revealed: Literal[1]
+    reveal_type(FINAL_F)  # revealed: Literal[1]
 ```
 
 Imported types:
@@ -41,11 +42,27 @@ Imported types:
 ```py
 from mod import FINAL_A, FINAL_B, FINAL_C, FINAL_D, FINAL_F
 
-reveal_type(FINAL_A)  # revealed: int
-reveal_type(FINAL_B)  # revealed: int
-reveal_type(FINAL_C)  # revealed: int
-reveal_type(FINAL_D)  # revealed: int
-reveal_type(FINAL_F)  # revealed: int
+reveal_type(FINAL_A)  # revealed: Literal[1]
+reveal_type(FINAL_B)  # revealed: Literal[1]
+reveal_type(FINAL_C)  # revealed: Literal[1]
+reveal_type(FINAL_D)  # revealed: Literal[1]
+reveal_type(FINAL_F)  # revealed: Literal[1]
+```
+
+### `Final` in class scopes
+
+`Final` symbols declared in class scopes keep using the declared type when accessed, because a
+`Final` instance attribute may still be assigned in `__init__`:
+
+```py
+from typing import Final
+
+class C:
+    class_final: Final[int] = 1
+    class_var: int = 1
+
+reveal_type(C.class_final)  # revealed: int
+reveal_type(C.class_var)  # revealed: int
 ```
 
 ### Bare `Final` without a type
@@ -239,26 +256,35 @@ from source import VALUE as wrong_type
 
 from source import VALUE as imported_twice
 
-forwarded_value = 2  # error: [invalid-assignment] "Reassignment of `Final` symbol `forwarded_value` is not allowed"
+# error: [invalid-assignment] "Reassignment of `Final` symbol `forwarded_value` is not allowed"
+# error: [invalid-assignment] "Object of type `Literal[2]` is not assignable to `Literal[1]`"
+forwarded_value = 2
+# error: [invalid-assignment] "Object of type `Literal[3]` is not assignable to `Literal[1]`"
 # snapshot: invalid-assignment
 forwarded_value = 3
-wildcard_value = 2  # error: [invalid-assignment] "Reassignment of `Final` symbol `wildcard_value` is not allowed"
-imported_twice = 2  # error: [invalid-assignment] "Reassignment of `Final` symbol `imported_twice` is not allowed"
+# error: [invalid-assignment] "Reassignment of `Final` symbol `wildcard_value` is not allowed"
+# error: [invalid-assignment] "Object of type `Literal[2]` is not assignable to `Literal[1]`"
+wildcard_value = 2
+# error: [invalid-assignment] "Reassignment of `Final` symbol `imported_twice` is not allowed"
+# error: [invalid-assignment] "Object of type `Literal[2]` is not assignable to `Literal[1]`"
+imported_twice = 2
 
 # error: [invalid-assignment] "Reassignment of `Final` symbol `wrong_type` is not allowed"
-# error: [invalid-assignment] "Object of type `Literal["wrong"]` is not assignable to `int`"
+# error: [invalid-assignment] "Object of type `Literal["wrong"]` is not assignable to `Literal[1]`"
 wrong_type = "wrong"
 
 def overwrite_wildcard() -> None:
     global wildcard_value
-    wildcard_value = 3  # error: [invalid-assignment] "Reassignment of `Final` symbol `wildcard_value` is not allowed"
+    # error: [invalid-assignment] "Reassignment of `Final` symbol `wildcard_value` is not allowed"
+    # error: [invalid-assignment] "Object of type `Literal[3]` is not assignable to `Literal[1]`"
+    wildcard_value = 3
 ```
 
 ```snapshot
 error[invalid-assignment]: Reassignment of `Final` symbol `forwarded_value` is not allowed
-  --> src/main.py:10:1
+  --> src/main.py:13:1
    |
-10 | forwarded_value = 3
+13 | forwarded_value = 3
    | ^^^^^^^^^^^^^^^^^^^ Reassignment of `Final` symbol
 ```
 
@@ -278,7 +304,9 @@ VALUE: Final[int] = 1
 from source import VALUE
 
 for _ in range(2):
-    VALUE = 2  # error: [invalid-assignment] "Reassignment of `Final` symbol `VALUE` is not allowed"
+    # error: [invalid-assignment] "Reassignment of `Final` symbol `VALUE` is not allowed"
+    # error: [invalid-assignment] "Object of type `Literal[2]` is not assignable to `Literal[1]`"
+    VALUE = 2
 ```
 
 ### Imported `Final` qualifiers do not replace earlier declared types
@@ -389,7 +417,9 @@ def replace_global() -> None:
     global global_value
     from mutable import VALUE as global_value
 
-    global_value = 2  # error: [invalid-assignment]
+    # error: [invalid-assignment] "Reassignment of `Final` symbol `global_value` is not allowed"
+    # error: [invalid-assignment] "Object of type `Literal[2]` is not assignable to `Literal[1]`"
+    global_value = 2
 ```
 
 ### Imported `Final` qualifiers apply to class members
@@ -484,7 +514,7 @@ def reassign(flag: bool) -> None:
         from source import TEXT as value
 
     # error: [invalid-assignment] "Reassignment of `Final` symbol `value` is not allowed"
-    # error: [invalid-assignment] "Object of type `None` is not assignable to `int | str`"
+    # error: [invalid-assignment] "Object of type `None` is not assignable to `Literal[1, "text"]`"
     value = None
 ```
 
